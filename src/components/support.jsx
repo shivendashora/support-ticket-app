@@ -24,15 +24,13 @@ const Support = () => {
   const navigate = useNavigate();
   const { logout } = useAuth();
 
-  // Add handleLogout function
+  // Handle logout
   const handleLogout = () => {
     logout();
     navigate('/');
   };
 
-  const ticketsCollectionRef = collection(db, "tickets"); // Changed from supportTickets to tickets
-
-  // Updated fetchTickets function to get all tickets
+  // Fetch tickets from Firestore
   const fetchTickets = async () => {
     try {
       // Check cache first
@@ -82,17 +80,17 @@ const Support = () => {
   // Handle Add Ticket
   const handleAddTicket = async () => {
     try {
-      const docRef = await addDoc(ticketsCollectionRef, {
+      const docRef = await addDoc(collection(db, "tickets"), {
         ...newTicket,
         createdAt: new Date(),
       });
 
-      const newTicketWithId = { id: docRef.id, ...newTicket };
+      const newTicketWithId = { id: docRef.id, ...newTicket, source: 'customer' };
       const updatedTickets = [...tickets, newTicketWithId];
       
       // Update state and cache
       setTickets(updatedTickets);
-      localStorage.setItem('supportTickets', JSON.stringify(updatedTickets));
+      localStorage.setItem('allTickets', JSON.stringify(updatedTickets));
       
       setIsModalOpen(false);
       setNewTicket({
@@ -109,14 +107,15 @@ const Support = () => {
   };
 
   // Handle Delete
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, source) => {
     try {
-      await deleteDoc(doc(db, "supportTickets", id));
+      const collectionName = source === 'support' ? 'supportTickets' : 'tickets';
+      await deleteDoc(doc(db, collectionName, id));
       const updatedTickets = tickets.filter(ticket => ticket.id !== id);
       
       // Update state and cache
       setTickets(updatedTickets);
-      localStorage.setItem('supportTickets', JSON.stringify(updatedTickets));
+      localStorage.setItem('allTickets', JSON.stringify(updatedTickets));
     } catch (error) {
       console.error("Error deleting ticket:", error);
     }
@@ -125,7 +124,8 @@ const Support = () => {
   // Handle Save (Edit)
   const handleSave = async () => {
     try {
-      const ticketRef = doc(db, "supportTickets", editingTicket.id);
+      const collectionName = editingTicket.source === 'support' ? 'supportTickets' : 'tickets';
+      const ticketRef = doc(db, collectionName, editingTicket.id);
       await updateDoc(ticketRef, editingTicket);
       
       const updatedTickets = tickets.map(ticket => 
@@ -134,7 +134,7 @@ const Support = () => {
       
       // Update state and cache
       setTickets(updatedTickets);
-      localStorage.setItem('supportTickets', JSON.stringify(updatedTickets));
+      localStorage.setItem('allTickets', JSON.stringify(updatedTickets));
       
       setEditingTicket(null);
     } catch (error) {
@@ -148,7 +148,7 @@ const Support = () => {
   };
 
   const handleEdit = (ticket) => {
-    setEditingTicket(ticket);
+    setEditingTicket({ ...ticket });
   };
 
   const handleView = (ticket) => {
@@ -163,12 +163,6 @@ const Support = () => {
     document.body.appendChild(element);
     element.click();
   };
-
-  useEffect(() => {
-    if (!localStorage.getItem('isLoggedIn')) {
-      navigate('/');
-    }
-  }, [navigate]);
 
   useEffect(() => {
     if (searchTerm.trim() === "") {
@@ -246,7 +240,7 @@ const Support = () => {
                     <div className="action-buttons">
                       <button className="action-btn view-btn" onClick={() => handleView(ticket)}>View</button>
                       <button className="action-btn edit-btn" onClick={() => handleEdit(ticket)}>Edit</button>
-                      <button className="action-btn delete-btn" onClick={() => handleDelete(ticket.id)}>Delete</button>
+                      <button className="action-btn delete-btn" onClick={() => handleDelete(ticket.id, ticket.source)}>Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -262,6 +256,7 @@ const Support = () => {
         </table>
       </div>
 
+      {/* Add Ticket Modal */}
       {isModalOpen && (
         <div className="modal-overlay">
           <div className="modal">
@@ -298,21 +293,35 @@ const Support = () => {
         </div>
       )}
 
+      {/* Edit Ticket Modal */}
       {editingTicket && (
         <div className="modal-overlay">
           <div className="modal">
             <h3>Edit Ticket</h3>
             <label>
               Title: 
-              <input type="text" name="title" value={editingTicket.title} onChange={(e) => setEditingTicket({...editingTicket, title: e.target.value})} />
+              <input 
+                type="text" 
+                name="title" 
+                value={editingTicket.title || ''} 
+                onChange={(e) => setEditingTicket({...editingTicket, title: e.target.value})} 
+              />
             </label>
             <label>
               Description: 
-              <textarea name="description" value={editingTicket.description} onChange={(e) => setEditingTicket({...editingTicket, description: e.target.value})} />
+              <textarea 
+                name="description" 
+                value={editingTicket.description || ''} 
+                onChange={(e) => setEditingTicket({...editingTicket, description: e.target.value})} 
+              />
             </label>
             <label>
               Priority:
-              <select name="priority" value={editingTicket.priority} onChange={(e) => setEditingTicket({...editingTicket, priority: e.target.value})}>
+              <select 
+                name="priority" 
+                value={editingTicket.priority || 'Low'} 
+                onChange={(e) => setEditingTicket({...editingTicket, priority: e.target.value})}
+              >
                 <option value="Low">Low</option>
                 <option value="Medium">Medium</option>
                 <option value="High">High</option>
@@ -322,9 +331,8 @@ const Support = () => {
               Status:
               <select 
                 name="status" 
-                value={editingTicket.status} 
+                value={editingTicket.status || 'Open'} 
                 onChange={(e) => setEditingTicket({...editingTicket, status: e.target.value})}
-                className={`status-dropdown ${editingTicket.status.toLowerCase().replace(" ", "-")}`}
               >
                 <option value="Open">Open</option>
                 <option value="In Progress">In Progress</option>
@@ -333,11 +341,21 @@ const Support = () => {
             </label>
             <label>
               Created By: 
-              <input type="text" name="createdBy" value={editingTicket.createdBy} onChange={(e) => setEditingTicket({...editingTicket, createdBy: e.target.value})} />
+              <input 
+                type="text" 
+                name="createdBy" 
+                value={editingTicket.createdBy || ''} 
+                onChange={(e) => setEditingTicket({...editingTicket, createdBy: e.target.value})} 
+              />
             </label>
             <label>
               Assigned To: 
-              <input type="text" name="assignedTo" value={editingTicket.assignedTo} onChange={(e) => setEditingTicket({...editingTicket, assignedTo: e.target.value})} />
+              <input 
+                type="text" 
+                name="assignedTo" 
+                value={editingTicket.assignedTo || ''} 
+                onChange={(e) => setEditingTicket({...editingTicket, assignedTo: e.target.value})} 
+              />
             </label>
             <div className="modal-actions">
               <button className="submit-btn" onClick={handleSave}>Save</button>
@@ -347,6 +365,7 @@ const Support = () => {
         </div>
       )}
 
+      {/* View Ticket Modal */}
       {viewingTicket && (
         <div className="modal-overlay">
           <div className="modal">
